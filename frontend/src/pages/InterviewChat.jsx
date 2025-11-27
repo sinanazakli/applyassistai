@@ -268,11 +268,22 @@ const InterviewChat = () => {
                     <div>
                         <FeedbackView answer={currentAnswer} feedback={currentAnswer.feedback} />
 
-                        <div className="mt-6 flex gap-4">
+                        <div className="mt-6 flex flex-col sm:flex-row gap-4">
+                            <button
+                                onClick={() => {
+                                    setShowFeedback(false);
+                                    // Keep the answer text in the input so user can edit it
+                                }}
+                                className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                            >
+                                <Sparkles className="w-5 h-5" />
+                                Improve Answer
+                            </button>
+
                             {currentQuestionIndex < questions.length - 1 ? (
                                 <button
                                     onClick={nextQuestion}
-                                    className="btn-primary w-full flex items-center justify-center gap-2"
+                                    className="btn-primary flex-1 flex items-center justify-center gap-2"
                                 >
                                     Next Question
                                     <ArrowLeft className="w-5 h-5 rotate-180" />
@@ -280,7 +291,7 @@ const InterviewChat = () => {
                             ) : (
                                 <button
                                     onClick={() => navigate('/dashboard')}
-                                    className="btn-primary w-full flex items-center justify-center gap-2"
+                                    className="btn-primary flex-1 flex items-center justify-center gap-2"
                                 >
                                     <CheckCircle className="w-5 h-5" />
                                     Complete Session

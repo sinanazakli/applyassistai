@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 
 from .. import models, schemas, auth
 from ..database import get_db
@@ -203,12 +204,6 @@ def submit_answer(
         models.Answer.question_id == answer_data.question_id
     ).first()
     
-    if existing_answer:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Answer already submitted for this question"
-        )
-    
     # Evaluate the answer using AI
     try:
         evaluation = answer_evaluator.evaluate_answer(
@@ -223,34 +218,70 @@ def submit_answer(
             detail=f"Failed to evaluate answer: {str(e)}"
         )
     
-    # Save answer
-    db_answer = models.Answer(
-        session_id=session_id,
-        question_id=answer_data.question_id,
-        answer_text=answer_data.answer_text,
-        relevance_score=evaluation["relevance_score"],
-        structure_score=evaluation["structure_score"],
-        professionalism_score=evaluation["professionalism_score"],
-        overall_score=evaluation["overall_score"]
-    )
-    
-    db.add(db_answer)
+    if existing_answer:
+        # Update existing answer
+        existing_answer.answer_text = answer_data.answer_text
+        existing_answer.relevance_score = evaluation["relevance_score"]
+        existing_answer.structure_score = evaluation["structure_score"]
+        existing_answer.professionalism_score = evaluation["professionalism_score"]
+        existing_answer.overall_score = evaluation["overall_score"]
+        existing_answer.created_at = datetime.utcnow() # Update timestamp
+        
+        db_answer = existing_answer
+        
+        # Update existing feedback
+        if existing_answer.feedback:
+            existing_answer.feedback.strengths = evaluation["strengths"]
+            existing_answer.feedback.weaknesses = evaluation["weaknesses"]
+            existing_answer.feedback.suggestions = evaluation["suggestions"]
+            existing_answer.feedback.star_analysis = evaluation["star_analysis"]
+            existing_answer.feedback.example_answer = evaluation["example_answer"]
+            existing_answer.feedback.created_at = datetime.utcnow()
+            db_feedback = existing_answer.feedback
+        else:
+            # Create feedback if it somehow didn't exist
+            db_feedback = models.Feedback(
+                answer_id=db_answer.id,
+                strengths=evaluation["strengths"],
+                weaknesses=evaluation["weaknesses"],
+                suggestions=evaluation["suggestions"],
+                star_analysis=evaluation["star_analysis"],
+                example_answer=evaluation["example_answer"]
+            )
+            db.add(db_feedback)
+            
+    else:
+        # Create new answer
+        db_answer = models.Answer(
+            session_id=session_id,
+            question_id=answer_data.question_id,
+            answer_text=answer_data.answer_text,
+            relevance_score=evaluation["relevance_score"],
+            structure_score=evaluation["structure_score"],
+            professionalism_score=evaluation["professionalism_score"],
+            overall_score=evaluation["overall_score"]
+        )
+        
+        db.add(db_answer)
+        db.commit()
+        db.refresh(db_answer)
+        
+        # Create new feedback
+        db_feedback = models.Feedback(
+            answer_id=db_answer.id,
+            strengths=evaluation["strengths"],
+            weaknesses=evaluation["weaknesses"],
+            suggestions=evaluation["suggestions"],
+            star_analysis=evaluation["star_analysis"],
+            example_answer=evaluation["example_answer"]
+        )
+        
+        db.add(db_feedback)
+
     db.commit()
     db.refresh(db_answer)
-    
-    # Save feedback
-    db_feedback = models.Feedback(
-        answer_id=db_answer.id,
-        strengths=evaluation["strengths"],
-        weaknesses=evaluation["weaknesses"],
-        suggestions=evaluation["suggestions"],
-        star_analysis=evaluation["star_analysis"],
-        example_answer=evaluation["example_answer"]
-    )
-    
-    db.add(db_feedback)
-    db.commit()
-    db.refresh(db_feedback)
+    if db_answer.feedback:
+        db.refresh(db_answer.feedback)
     
     # Update session score if all questions answered
     total_questions = db.query(models.Question).filter(
@@ -273,5 +304,8 @@ def submit_answer(
         db.commit()
     
     # Return answer with feedback
-    db_answer.feedback = db_feedback
+    # Ensure feedback is loaded
+    if not db_answer.feedback:
+        db_answer.feedback = db_feedback
+        
     return db_answer
