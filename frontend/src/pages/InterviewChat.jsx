@@ -38,8 +38,9 @@ const InterviewChat = () => {
             setQuestions(response.data.questions || []);
 
             // Find the first unanswered question
-            const unansweredIndex = response.data.questions?.findIndex(q => !q.answer) ?? 0;
-            setCurrentQuestionIndex(unansweredIndex);
+            const unansweredIndex = response.data.questions?.findIndex(q => !q.answer);
+            // If all questions answered (index -1) or no questions, start at 0
+            setCurrentQuestionIndex(unansweredIndex === -1 ? 0 : (unansweredIndex ?? 0));
 
             setLoading(false);
         } catch (err) {
@@ -67,6 +68,21 @@ const InterviewChat = () => {
         }
     };
 
+    useEffect(() => {
+        if (questions.length > 0) {
+            const question = questions[currentQuestionIndex];
+            if (question.answer) {
+                setCurrentAnswer(question.answer);
+                setShowFeedback(true);
+                setAnswer(question.answer.answer_text); // Pre-fill answer for editing
+            } else {
+                setCurrentAnswer(null);
+                setShowFeedback(false);
+                setAnswer('');
+            }
+        }
+    }, [currentQuestionIndex, questions]);
+
     const submitAnswer = async () => {
         if (!answer.trim()) {
             setError('Please provide an answer');
@@ -82,9 +98,16 @@ const InterviewChat = () => {
                 answer_text: answer,
             });
 
+            // Update the questions array with the new answer
+            const updatedQuestions = [...questions];
+            updatedQuestions[currentQuestionIndex] = {
+                ...updatedQuestions[currentQuestionIndex],
+                answer: response.data
+            };
+            setQuestions(updatedQuestions);
+
             setCurrentAnswer(response.data);
             setShowFeedback(true);
-            setAnswer('');
         } catch (err) {
             setError(err.response?.data?.detail || 'Failed to submit answer');
         } finally {
@@ -93,14 +116,17 @@ const InterviewChat = () => {
     };
 
     const nextQuestion = () => {
-        setShowFeedback(false);
-        setCurrentAnswer(null);
-
         if (currentQuestionIndex < questions.length - 1) {
             setCurrentQuestionIndex(currentQuestionIndex + 1);
         } else {
             // All questions answered
             navigate('/dashboard');
+        }
+    };
+
+    const prevQuestion = () => {
+        if (currentQuestionIndex > 0) {
+            setCurrentQuestionIndex(currentQuestionIndex - 1);
         }
     };
 
@@ -230,6 +256,15 @@ const InterviewChat = () => {
                             )}
 
                             <div className="flex gap-4">
+                                {currentQuestionIndex > 0 && (
+                                    <button
+                                        onClick={prevQuestion}
+                                        className="btn-secondary flex items-center justify-center gap-2"
+                                    >
+                                        <ArrowLeft className="w-5 h-5" />
+                                        Previous
+                                    </button>
+                                )}
                                 <button
                                     onClick={submitAnswer}
                                     disabled={submitting || !answer.trim()}
@@ -268,11 +303,32 @@ const InterviewChat = () => {
                     <div>
                         <FeedbackView answer={currentAnswer} feedback={currentAnswer.feedback} />
 
-                        <div className="mt-6 flex gap-4">
+                        <div className="mt-6 flex flex-col sm:flex-row gap-4">
+                            {currentQuestionIndex > 0 && (
+                                <button
+                                    onClick={prevQuestion}
+                                    className="btn-secondary flex items-center justify-center gap-2"
+                                >
+                                    <ArrowLeft className="w-5 h-5" />
+                                    Previous
+                                </button>
+                            )}
+
+                            <button
+                                onClick={() => {
+                                    setShowFeedback(false);
+                                    // Answer is already set in useEffect
+                                }}
+                                className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                            >
+                                <Sparkles className="w-5 h-5" />
+                                Improve Answer
+                            </button>
+
                             {currentQuestionIndex < questions.length - 1 ? (
                                 <button
                                     onClick={nextQuestion}
-                                    className="btn-primary w-full flex items-center justify-center gap-2"
+                                    className="btn-primary flex-1 flex items-center justify-center gap-2"
                                 >
                                     Next Question
                                     <ArrowLeft className="w-5 h-5 rotate-180" />
@@ -280,7 +336,7 @@ const InterviewChat = () => {
                             ) : (
                                 <button
                                     onClick={() => navigate('/dashboard')}
-                                    className="btn-primary w-full flex items-center justify-center gap-2"
+                                    className="btn-primary flex-1 flex items-center justify-center gap-2"
                                 >
                                     <CheckCircle className="w-5 h-5" />
                                     Complete Session
