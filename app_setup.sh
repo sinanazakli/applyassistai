@@ -148,8 +148,14 @@ if [ "$SKIP_DB_CONFIG" = false ]; then
     
     # Create .env file
     echo "📝 Erstelle .env Datei..."
+    
+    # Strip any newlines from variables to ensure single-line DATABASE_URL
+    DB_USER_CLEAN=$(echo -n "$DB_USER" | tr -d '\n\r')
+    DB_PASS_CLEAN=$(echo -n "$DB_PASS" | tr -d '\n\r')
+    DB_NAME_CLEAN=$(echo -n "$DB_NAME" | tr -d '\n\r')
+    
     cat > "$ENV_FILE" <<EOF
-DATABASE_URL=postgresql://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME
+DATABASE_URL=postgresql://${DB_USER_CLEAN}:${DB_PASS_CLEAN}@localhost:5432/${DB_NAME_CLEAN}
 SECRET_KEY=your-secret-key-$(openssl rand -hex 32)
 OPENAI_API_KEY=${OPENAI_KEY:-your-openai-api-key-here}
 EOF
