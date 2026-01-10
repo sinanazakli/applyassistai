@@ -18,7 +18,7 @@ read_with_default() {
     local default="$2"
     local value
     read -p "$prompt [$default]: " value
-    echo "${value:-$default}"
+    printf "%s" "${value:-$default}"
 }
 
 # Function to read passwords (without echo)
@@ -27,8 +27,8 @@ read_password() {
     local default="$2"
     local value
     read -s -p "$prompt [$default]: " value
-    echo ""  # New line after silent input
-    echo "${value:-$default}"
+    echo ""  # New line after silent input for display
+    printf "%s" "${value:-$default}"  # Use printf to avoid adding newline
 }
 
 # ===========================================
@@ -133,10 +133,7 @@ echo ""
 if [ "$SKIP_DB_CONFIG" = false ]; then
     echo "📝 Datenbank-Konfiguration"
     echo "=========================================="
-    
-    # PostgreSQL Root-Passwort (für Admin-Operationen)
-    echo "ℹ️  PostgreSQL 'postgres' User Passwort wird benoetigt"
-    POSTGRES_PASS=$(read_password "PostgreSQL 'postgres' User Passwort" "postgres")
+    echo "ℹ️  Hinweis: sudo wird dein System-Passwort abfragen um die Datenbank einzurichten"
     echo ""
     
     # Datenbank-Credentials abfragen
@@ -157,11 +154,6 @@ SECRET_KEY=your-secret-key-$(openssl rand -hex 32)
 OPENAI_API_KEY=${OPENAI_KEY:-your-openai-api-key-here}
 EOF
     echo "✅ .env Datei erstellt/aktualisiert"
-else
-    # Ask for postgres password even when using existing .env
-    echo "ℹ️  PostgreSQL 'postgres' User Passwort wird benoetigt fuer Datenbank-Setup"
-    POSTGRES_PASS=$(read_password "PostgreSQL 'postgres' User Passwort" "postgres")
-    echo ""
 fi
 
 # ===========================================
@@ -199,58 +191,24 @@ echo "✅ Python-Abhaengigkeiten installiert"
 echo ""
 echo "🗄️  Richte Datenbank ein..."
 
-# Set postgres password for psql commands
-export PGPASSWORD="$POSTGRES_PASS"
+# Create user if not exists (same approach as setup.sh)
+sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1 || \
+    sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
 
-# Check if database exists
-DB_EXISTS=$(psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" 2>/dev/null || echo "")
+# Update password if user already exists
+sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1 && \
+    sudo -u postgres psql -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';"
 
-if [ "$DB_EXISTS" = "1" ]; then
-    echo "ℹ️  Datenbank '$DB_NAME' existiert bereits - verwende bestehende Daten"
-    
-    # Check if user exists
-    USER_EXISTS=$(psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null || echo "")
-    
-    if [ "$USER_EXISTS" = "1" ]; then
-        # User exists - only update password
-        psql -U postgres -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';"
-        echo "✅ Passwort für User '$DB_USER' aktualisiert"
-    else
-        # Create user
-        psql -U postgres -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
-        echo "✅ User '$DB_USER' erstellt"
-    fi
-    
-    # Grant privileges (just to be sure)
-    psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || true
-    psql -U postgres -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO $DB_USER;" 2>/dev/null || true
-    echo "✅ Privileges aktualisiert"
-    
-else
-    echo "ℹ️  Datenbank '$DB_NAME' existiert nicht - erstelle neue Datenbank"
-    
-    # Check if user exists
-    USER_EXISTS=$(psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null || echo "")
-    
-    if [ "$USER_EXISTS" != "1" ]; then
-        psql -U postgres -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
-        echo "✅ User '$DB_USER' erstellt"
-    else
-        psql -U postgres -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';"
-        echo "✅ Passwort für existierenden User '$DB_USER' aktualisiert"
-    fi
-    
-    # Create database
-    psql -U postgres -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
-    echo "✅ Datenbank '$DB_NAME' erstellt"
-    
-    # Grant privileges
-    psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
-    psql -U postgres -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO $DB_USER;"
-    echo "✅ Privileges gewährt"
-fi
+# Create database if not exists
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || \
+    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
 
-unset PGPASSWORD
+# Grant privileges
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
+# Grant schema privileges (needed for public schema)
+sudo -u postgres psql -d $DB_NAME -c "GRANT ALL ON SCHEMA public TO $DB_USER;"
+
+echo "✅ Datenbank und User bereit"
 
 # ===========================================
 # Alembic Migrations
