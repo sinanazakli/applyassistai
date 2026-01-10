@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .routes import auth_routes, interview_routes, dashboard_routes
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# # Create database tables
+# Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="ApplyAssistAI",
